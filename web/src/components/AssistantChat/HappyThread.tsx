@@ -764,11 +764,11 @@ export function HappyThread(props: {
                 return
             }
 
-            // Scroll position is the source of truth. The loader controller
-            // decides whether this demand may start a request; programmatic
-            // scroll events cannot bypass backoff or a paused coverage run.
-            if (needsCoverage) {
-                void requestOlderRef.current(explicitUpwardIntent ? 'user' : 'coverage')
+            // Scroll position is the source of truth. Older pages are fetched
+            // only from explicit upward input so programmatic layout shifts do
+            // not walk history and evict the user's current window.
+            if (explicitUpwardIntent) {
+                void requestOlderRef.current('user')
             }
 
             if (intent.isScrollingUp && intent.distanceFromBottom > MANUAL_SCROLL_EPSILON_PX) {
@@ -1132,17 +1132,7 @@ export function HappyThread(props: {
 
     const scheduleCoverageAfterSettling = useCallback(() => {
         clearCoverageCheckTimer()
-        if (historyLoaderRef.current.autoPaused) {
-            return
-        }
-        const delay = getHistoryCoverageRetryDelay(initialScrollDeadlineRef.current, Date.now())
-        coverageCheckTimerRef.current = window.setTimeout(() => {
-            coverageCheckTimerRef.current = null
-            if (needsViewportCoverage()) {
-                void requestOlderRef.current('coverage')
-            }
-        }, delay)
-    }, [clearCoverageCheckTimer, needsViewportCoverage])
+    }, [clearCoverageCheckTimer])
 
     const startHistoryLoadAttempt = useCallback((runId: number): void => {
         const state = historyLoaderRef.current
@@ -1384,22 +1374,12 @@ export function HappyThread(props: {
             clearCoverageCheckTimer()
             return
         }
-        if (!needsViewportCoverage()) {
-            return
-        }
-        if (isInitialScrollSettling()) {
-            scheduleCoverageAfterSettling()
-            return
-        }
-        void requestOlderRef.current('coverage')
+        clearCoverageCheckTimer()
     }, [
         props.hasMoreMessages,
         props.isSyncingTail,
         props.isLoadingMoreMessages,
         props.messagesVersion,
-        isInitialScrollSettling,
-        needsViewportCoverage,
-        scheduleCoverageAfterSettling,
         clearCoverageCheckTimer
     ])
 
@@ -1420,24 +1400,11 @@ export function HappyThread(props: {
             ) {
                 scrollToBottomInstant()
             }
-            // Late content growth can leave the viewport near the top without
-            // a scroll event. Submit demand through the same controller; an
-            // in-flight load, backoff, or paused run remains exclusive.
-            if (!pendingScrollRef.current && needsViewportCoverage()) {
-                if (isInitialScrollSettling()) {
-                    scheduleCoverageAfterSettling()
-                } else {
-                    void requestOlderRef.current('coverage')
-                }
-            }
         })
         observer.observe(content)
         return () => observer.disconnect()
     }, [
         scrollToBottomInstant,
-        isInitialScrollSettling,
-        needsViewportCoverage,
-        scheduleCoverageAfterSettling
     ])
 
     useLayoutEffect(() => {

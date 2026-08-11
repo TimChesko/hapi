@@ -127,6 +127,31 @@ describe('useThemeColors', () => {
         expect(setBottomBarColor).toHaveBeenCalledWith('#123456')
     })
 
+    it('syncs Telegram chrome from the active color theme preset', () => {
+        const setHeaderColor = vi.fn()
+        const setBackgroundColor = vi.fn()
+        const setBottomBarColor = vi.fn()
+        window.Telegram = {
+            WebApp: {
+                initData: 'init-data',
+                themeParams: {},
+                ready: vi.fn(),
+                expand: vi.fn(),
+                setHeaderColor,
+                setBackgroundColor,
+                setBottomBarColor,
+            },
+        }
+        localStorage.setItem('hapi-color-theme', 'matrix')
+        setScheme('dark')
+
+        applyThemeColors()
+
+        expect(setHeaderColor).toHaveBeenCalledWith('#030806')
+        expect(setBackgroundColor).toHaveBeenCalledWith('#030806')
+        expect(setBottomBarColor).toHaveBeenCalledWith('#030806')
+    })
+
     it('uses the active color theme as the custom color picker baseline', () => {
         localStorage.setItem('hapi-color-theme', 'one')
         setScheme('light')
