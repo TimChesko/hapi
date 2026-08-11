@@ -12,6 +12,9 @@ import {
     viewport,
 } from '@tma.js/sdk'
 
+const TELEGRAM_DEBUG_BUILD_ID = 'tma-sdk-debug-bafb5056-20260811'
+const TMA_INIT_RETRY_DELAY_MS = 500
+
 /**
  * Detects if the current environment is Telegram Mini App
  * by checking URL hash/query parameters that Telegram passes.
@@ -122,7 +125,9 @@ let lastHapticFeedbackAt = 0
 let removeTelegramInteractionHaptics: (() => void) | null = null
 let tmaInitialized = false
 let tmaInitAttempted = false
+let tmaInitAttemptCount = 0
 let tmaInitError: string | null = null
+let lastTmaInitAttemptAt = 0
 let tmaCleanup: (() => void) | null = null
 
 type TelegramChromeMethod = 'setHeaderColor' | 'setBackgroundColor' | 'setBottomBarColor'
@@ -286,12 +291,14 @@ function reportTelegramChromeSync(
 
     const body = JSON.stringify({
         event: 'telegram-chrome-sync',
+        buildId: TELEGRAM_DEBUG_BUILD_ID,
         reason,
         color,
         resolvedAppBg: getResolvedAppBackgroundColor(),
         dataTheme: document.documentElement.getAttribute('data-theme'),
         colorTheme: document.documentElement.getAttribute('data-color-theme'),
         environment: getTelegramEnvironmentSnapshot(),
+        tma: getTmaSnapshot(),
         telegram: {
             version: tg?.version ?? null,
             platform: tg?.platform ?? null,
@@ -304,6 +311,30 @@ function reportTelegramChromeSync(
             hasSetBottomBarColor: typeof tg?.setBottomBarColor === 'function',
         },
         attempts,
+    })
+
+    void fetch('/api/debug/telegram', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+        keepalive: true,
+    }).catch(() => {
+        // Debug-only best effort.
+    })
+}
+
+function reportTelegramDebug(event: string, extra: Record<string, unknown> = {}): void {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+
+    const body = JSON.stringify({
+        event,
+        buildId: TELEGRAM_DEBUG_BUILD_ID,
+        dataTheme: document.documentElement.getAttribute('data-theme'),
+        colorTheme: document.documentElement.getAttribute('data-color-theme'),
+        resolvedAppBg: getResolvedAppBackgroundColor(),
+        environment: getTelegramEnvironmentSnapshot(),
+        tma: getTmaSnapshot(),
+        ...extra,
     })
 
     void fetch('/api/debug/telegram', {
@@ -334,7 +365,37 @@ function getTelegramEnvironmentSnapshot() {
         sdkScriptPresent: Boolean(script),
         tmaInitialized,
         tmaInitAttempted,
+        tmaInitAttemptCount,
         tmaInitError,
+        locationHashLength: window.location.hash.length,
+        locationSearchLength: window.location.search.length,
+    }
+}
+
+function getTmaSnapshot(): Record<string, string | number | boolean | null> {
+    const launchParams = safeRead(() => retrieveLaunchParams())
+    return {
+        buildId: TELEGRAM_DEBUG_BUILD_ID,
+        initialized: tmaInitialized,
+        initAttempted: tmaInitAttempted,
+        initAttemptCount: tmaInitAttemptCount,
+        initError: tmaInitError,
+        hasRawInitData: Boolean(safeRead(() => retrieveRawInitData())),
+        launchVersion: launchParams?.tgWebAppVersion ?? null,
+        launchPlatform: launchParams?.tgWebAppPlatform ?? null,
+        miniAppMounted: safeRead(() => miniApp.isMounted()) ?? false,
+        themeParamsMounted: safeRead(() => themeParams.isMounted()) ?? false,
+        viewportMounted: safeRead(() => viewport.isMounted()) ?? false,
+        swipeBehaviorMounted: safeRead(() => swipeBehavior.isMounted()) ?? false,
+        backButtonMounted: safeRead(() => backButton.isMounted()) ?? false,
+        readyAvailable: safeRead(() => miniApp.ready.isAvailable()) ?? false,
+        expandAvailable: safeRead(() => viewport.expand.isAvailable()) ?? false,
+        headerColorAvailable: safeRead(() => miniApp.setHeaderColor.isAvailable()) ?? false,
+        headerColorRgbSupported: safeRead(() => miniApp.setHeaderColor.supports('rgb')) ?? false,
+        bgColorAvailable: safeRead(() => miniApp.setBgColor.isAvailable()) ?? false,
+        bottomBarColorAvailable: safeRead(() => miniApp.setBottomBarColor.isAvailable()) ?? false,
+        swipeDisableAvailable: safeRead(() => swipeBehavior.disableVertical.isAvailable()) ?? false,
+        hapticImpactAvailable: safeRead(() => hapticFeedback.impactOccurred.isAvailable()) ?? false,
     }
 }
 
@@ -369,15 +430,24 @@ function isTmaEnvironment(): boolean {
 function initializeTmaSdk(): boolean {
     if (typeof window === 'undefined') return false
     if (tmaInitialized) return true
-    if (tmaInitAttempted) return false
+    const now = Date.now()
+    if (tmaInitAttempted && now - lastTmaInitAttemptAt < TMA_INIT_RETRY_DELAY_MS) return false
 
     tmaInitAttempted = true
+    tmaInitAttemptCount += 1
+    lastTmaInitAttemptAt = now
+    reportTelegramDebug('telegram-tma-init', { stage: 'start' })
     try {
         tmaCleanup = initTma()
         tmaInitialized = true
         tmaInitError = null
     } catch (error) {
         tmaInitError = error instanceof Error ? error.message : String(error)
+        reportTelegramDebug('telegram-tma-init', {
+            stage: 'failed',
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: tmaInitError,
+        })
         return false
     }
 
@@ -398,6 +468,7 @@ function initializeTmaSdk(): boolean {
         if (!backButton.isMounted()) backButton.mount()
     })
 
+    reportTelegramDebug('telegram-tma-init', { stage: 'mounted' })
     return true
 }
 

@@ -9,13 +9,25 @@ const telegramChromeAttemptSchema = z.object({
     error: z.string().max(200).optional(),
 })
 
+const telegramDebugValueSchema = z.union([
+    z.string().max(500),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(z.union([z.string().max(500), z.number(), z.boolean(), z.null()])).max(30),
+])
+
 const telegramDebugSchema = z.object({
-    event: z.literal('telegram-chrome-sync'),
+    event: z.string().max(80),
+    buildId: z.string().max(80).optional(),
     reason: z.enum(['attempted', 'no-webapp', 'no-color']).optional(),
-    color: z.string().max(64).nullable(),
-    resolvedAppBg: z.string().max(64).nullable(),
-    dataTheme: z.string().max(32).nullable(),
-    colorTheme: z.string().max(32).nullable(),
+    color: z.string().max(64).nullable().optional(),
+    resolvedAppBg: z.string().max(64).nullable().optional(),
+    dataTheme: z.string().max(32).nullable().optional(),
+    colorTheme: z.string().max(32).nullable().optional(),
+    stage: z.string().max(80).optional(),
+    environment: z.record(z.string(), telegramDebugValueSchema).optional(),
+    tma: z.record(z.string(), telegramDebugValueSchema).optional(),
     telegram: z.object({
         version: z.string().max(32).nullable(),
         platform: z.string().max(32).nullable(),
@@ -26,9 +38,9 @@ const telegramDebugSchema = z.object({
         hasSetHeaderColor: z.boolean(),
         hasSetBackgroundColor: z.boolean(),
         hasSetBottomBarColor: z.boolean(),
-    }),
-    attempts: z.array(telegramChromeAttemptSchema).max(12),
-})
+    }).optional(),
+    attempts: z.array(telegramChromeAttemptSchema).max(12).optional(),
+}).passthrough()
 
 export function createTelegramDebugRoutes(): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
