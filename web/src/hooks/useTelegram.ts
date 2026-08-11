@@ -610,7 +610,6 @@ function syncTelegramChromeColorsViaBridge(color: string, attempts: TelegramChro
     if (!hasTelegramHostBridge()) return
 
     postTelegramBridgeEvent('web_app_set_header_color', { color }, attempts)
-    postTelegramBridgeEvent('web_app_set_header_color', { color_key: 'bg_color' }, attempts)
     postTelegramBridgeEvent('web_app_set_background_color', { color }, attempts)
     postTelegramBridgeEvent('web_app_set_bottom_bar_color', { color }, attempts)
 }
