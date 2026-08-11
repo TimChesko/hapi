@@ -11,6 +11,7 @@ const telegramChromeAttemptSchema = z.object({
 
 const telegramDebugSchema = z.object({
     event: z.literal('telegram-chrome-sync'),
+    reason: z.enum(['attempted', 'no-webapp', 'no-color']).optional(),
     color: z.string().max(64).nullable(),
     resolvedAppBg: z.string().max(64).nullable(),
     dataTheme: z.string().max(32).nullable(),

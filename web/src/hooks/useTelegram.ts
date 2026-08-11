@@ -136,7 +136,10 @@ export function isTelegramApp(): boolean {
 
 export function configureTelegramWebApp(options: { syncThemeColors?: boolean } = {}): void {
     const tg = getTelegramWebApp()
-    if (!tg) return
+    if (!tg) {
+        reportTelegramChromeSync(null, [], 'no-webapp')
+        return
+    }
 
     tg.ready()
     tg.expand()
@@ -149,13 +152,20 @@ export function configureTelegramWebApp(options: { syncThemeColors?: boolean } =
 
 export function syncTelegramWebAppThemeColors(color = getResolvedAppBackgroundColor()): void {
     const tg = getTelegramWebApp()
-    if (!tg || !color) return
+    if (!tg) {
+        reportTelegramChromeSync(color, [], 'no-webapp')
+        return
+    }
+    if (!color) {
+        reportTelegramChromeSync(null, [], 'no-color')
+        return
+    }
 
     const attempts: TelegramChromeAttempt[] = []
     setTelegramHeaderColor(tg, color, attempts)
     setTelegramChromeColor(tg, 'setBackgroundColor', color, ['bg_color'], attempts)
     setTelegramChromeColor(tg, 'setBottomBarColor', color, ['bottom_bar_bg_color', 'bg_color'], attempts)
-    reportTelegramChromeSync(color, attempts)
+    reportTelegramChromeSync(color, attempts, 'attempted')
 }
 
 function setTelegramHeaderColor(tg: TelegramWebApp, color: string, attempts: TelegramChromeAttempt[]): void {
@@ -198,28 +208,32 @@ function setTelegramChromeColor(
     return false
 }
 
-function reportTelegramChromeSync(color: string, attempts: TelegramChromeAttempt[]): void {
+function reportTelegramChromeSync(
+    color: string | null,
+    attempts: TelegramChromeAttempt[],
+    reason: 'attempted' | 'no-webapp' | 'no-color'
+): void {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
 
     const tg = getTelegramWebApp()
-    if (!tg) return
 
     const body = JSON.stringify({
         event: 'telegram-chrome-sync',
+        reason,
         color,
         resolvedAppBg: getResolvedAppBackgroundColor(),
         dataTheme: document.documentElement.getAttribute('data-theme'),
         colorTheme: document.documentElement.getAttribute('data-color-theme'),
         telegram: {
-            version: tg.version ?? null,
-            platform: tg.platform ?? null,
-            colorScheme: tg.colorScheme ?? null,
-            headerColor: tg.headerColor ?? null,
-            backgroundColor: tg.backgroundColor ?? null,
-            bottomBarColor: tg.bottomBarColor ?? null,
-            hasSetHeaderColor: typeof tg.setHeaderColor === 'function',
-            hasSetBackgroundColor: typeof tg.setBackgroundColor === 'function',
-            hasSetBottomBarColor: typeof tg.setBottomBarColor === 'function',
+            version: tg?.version ?? null,
+            platform: tg?.platform ?? null,
+            colorScheme: tg?.colorScheme ?? null,
+            headerColor: tg?.headerColor ?? null,
+            backgroundColor: tg?.backgroundColor ?? null,
+            bottomBarColor: tg?.bottomBarColor ?? null,
+            hasSetHeaderColor: typeof tg?.setHeaderColor === 'function',
+            hasSetBackgroundColor: typeof tg?.setBackgroundColor === 'function',
+            hasSetBottomBarColor: typeof tg?.setBottomBarColor === 'function',
         },
         attempts,
     })
