@@ -42,7 +42,7 @@ async function bootstrap() {
     document.documentElement.dataset.telegramApp = isTelegram ? 'true' : 'false'
     if (isTelegram) {
         await loadTelegramSdk()
-        configureTelegramWebApp()
+        configureTelegramWebApp({ syncThemeColors: false })
     }
 
     // Handle GitHub Pages 404 redirect for SPA routing

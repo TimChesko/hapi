@@ -119,14 +119,16 @@ export function isTelegramApp(): boolean {
     return tg !== null && Boolean(tg.initData)
 }
 
-export function configureTelegramWebApp(): void {
+export function configureTelegramWebApp(options: { syncThemeColors?: boolean } = {}): void {
     const tg = getTelegramWebApp()
     if (!tg) return
 
     tg.ready()
     tg.expand()
     tg.disableVerticalSwipes?.()
-    syncTelegramWebAppThemeColors()
+    if (options.syncThemeColors ?? true) {
+        syncTelegramWebAppThemeColors()
+    }
     installTelegramInteractionHaptics()
 }
 

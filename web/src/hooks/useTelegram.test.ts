@@ -83,6 +83,30 @@ describe('configureTelegramWebApp', () => {
         expect(setBottomBarColor).toHaveBeenCalledWith('#123abc')
     })
 
+    it('can defer Telegram chrome color sync until the app theme is applied', () => {
+        const setHeaderColor = vi.fn()
+        const setBackgroundColor = vi.fn()
+        const setBottomBarColor = vi.fn()
+
+        window.Telegram = {
+            WebApp: {
+                initData: 'init-data',
+                themeParams: {},
+                ready: vi.fn(),
+                expand: vi.fn(),
+                setHeaderColor,
+                setBackgroundColor,
+                setBottomBarColor,
+            },
+        }
+
+        configureTelegramWebApp({ syncThemeColors: false })
+
+        expect(setHeaderColor).not.toHaveBeenCalled()
+        expect(setBackgroundColor).not.toHaveBeenCalled()
+        expect(setBottomBarColor).not.toHaveBeenCalled()
+    })
+
     it('normalizes CSS color values for Telegram APIs', () => {
         expect(normalizeCssColorToHex('#abc')).toBe('#aabbcc')
         expect(normalizeCssColorToHex('rgb(18, 58, 188)')).toBe('#123abc')
