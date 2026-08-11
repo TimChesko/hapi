@@ -83,6 +83,31 @@ describe('configureTelegramWebApp', () => {
         expect(setBottomBarColor).toHaveBeenCalledWith('#123abc')
     })
 
+    it('keeps syncing other Telegram chrome surfaces when one setter rejects a color', () => {
+        const setHeaderColor = vi.fn(() => {
+            throw new Error('unsupported color')
+        })
+        const setBackgroundColor = vi.fn()
+        const setBottomBarColor = vi.fn()
+
+        window.Telegram = {
+            WebApp: {
+                initData: 'init-data',
+                themeParams: {},
+                ready: vi.fn(),
+                expand: vi.fn(),
+                setHeaderColor,
+                setBackgroundColor,
+                setBottomBarColor,
+            },
+        }
+
+        syncTelegramWebAppThemeColors('#1f271d')
+
+        expect(setBackgroundColor).toHaveBeenCalledWith('#1f271d')
+        expect(setBottomBarColor).toHaveBeenCalledWith('#1f271d')
+    })
+
     it('can defer Telegram chrome color sync until the app theme is applied', () => {
         const setHeaderColor = vi.fn()
         const setBackgroundColor = vi.fn()

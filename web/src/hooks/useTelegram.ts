@@ -52,6 +52,8 @@ export type TelegramWebApp = {
     initDataUnsafe?: TelegramWebAppInitDataUnsafe
     themeParams: TelegramWebAppThemeParams
     colorScheme?: 'light' | 'dark'
+    version?: string
+    isVersionAtLeast?: (version: string) => boolean
     ready: () => void
     expand: () => void
     disableVerticalSwipes?: () => void
@@ -136,9 +138,39 @@ export function syncTelegramWebAppThemeColors(color = getResolvedAppBackgroundCo
     const tg = getTelegramWebApp()
     if (!tg || !color) return
 
-    tg.setHeaderColor?.(color)
-    tg.setBackgroundColor?.(color)
-    tg.setBottomBarColor?.(color)
+    setTelegramHeaderColor(tg, color)
+    setTelegramChromeColor(tg.setBackgroundColor, color, ['bg_color'])
+    setTelegramChromeColor(tg.setBottomBarColor, color, ['bottom_bar_bg_color', 'bg_color'])
+}
+
+function setTelegramHeaderColor(tg: TelegramWebApp, color: string): void {
+    if (!tg.setHeaderColor) return
+
+    if (!tg.isVersionAtLeast || tg.isVersionAtLeast('6.9')) {
+        if (setTelegramChromeColor(tg.setHeaderColor, color)) return
+    }
+
+    setTelegramChromeColor(tg.setHeaderColor, color, ['bg_color', 'secondary_bg_color'])
+}
+
+function setTelegramChromeColor(
+    setter: ((color: string) => void) | undefined,
+    color: string,
+    fallbackColors: string[] = []
+): boolean {
+    if (!setter) return false
+
+    for (const candidate of [color, ...fallbackColors]) {
+        try {
+            setter(candidate)
+            return true
+        } catch {
+            // Some Telegram clients reject custom hex colors for specific
+            // chrome surfaces. Keep the other surfaces independent.
+        }
+    }
+
+    return false
 }
 
 export function getResolvedAppBackgroundColor(): string | null {
