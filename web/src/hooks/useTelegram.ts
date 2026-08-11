@@ -6,6 +6,8 @@
 export function isTelegramEnvironment(): boolean {
     if (typeof window === 'undefined') return false
 
+    if (window.Telegram?.WebApp) return true
+
     // Telegram passes launch params via window.location.hash
     // Format: #tgWebAppVersion=...&tgWebAppData=...&tgWebAppPlatform=...
     const hash = window.location.hash.slice(1)
@@ -22,7 +24,7 @@ export function isTelegramEnvironment(): boolean {
         return true
     }
 
-    return false
+    return hasTelegramHostBridge() || isTelegramUserAgent()
 }
 
 export type TelegramWebAppThemeParams = {
@@ -118,6 +120,9 @@ declare global {
         Telegram?: {
             WebApp?: TelegramWebApp
         }
+        TelegramGameProxy?: unknown
+        TelegramWebviewProxy?: unknown
+        TelegramWebviewProxyProto?: unknown
     }
 }
 
@@ -224,6 +229,7 @@ function reportTelegramChromeSync(
         resolvedAppBg: getResolvedAppBackgroundColor(),
         dataTheme: document.documentElement.getAttribute('data-theme'),
         colorTheme: document.documentElement.getAttribute('data-color-theme'),
+        environment: getTelegramEnvironmentSnapshot(),
         telegram: {
             version: tg?.version ?? null,
             platform: tg?.platform ?? null,
@@ -246,6 +252,45 @@ function reportTelegramChromeSync(
     }).catch(() => {
         // Debug-only best effort.
     })
+}
+
+function getTelegramEnvironmentSnapshot() {
+    const script = document.head.querySelector<HTMLScriptElement>('script[src="https://telegram.org/js/telegram-web-app.js"]')
+    const hashParams = new URLSearchParams(window.location.hash.slice(1))
+    const searchParams = new URLSearchParams(window.location.search)
+
+    return {
+        detected: isTelegramEnvironment(),
+        telegramAppDataset: document.documentElement.dataset.telegramApp ?? null,
+        hashKeys: Array.from(hashParams.keys()).filter((key) => key.startsWith('tgWebApp')),
+        searchKeys: Array.from(searchParams.keys()).filter((key) => key.includes('tg') || key.includes('initData')),
+        hasTelegramLaunchParams: hasTelegramLaunchParams(),
+        hasTelegramUserAgent: isTelegramUserAgent(),
+        hasTelegramHostBridge: hasTelegramHostBridge(),
+        hasWindowTelegram: Boolean(window.Telegram),
+        hasWindowTelegramWebApp: Boolean(window.Telegram?.WebApp),
+        sdkScriptPresent: Boolean(script),
+    }
+}
+
+function hasTelegramLaunchParams(): boolean {
+    const hashParams = new URLSearchParams(window.location.hash.slice(1))
+    if (hashParams.has('tgWebAppVersion') || hashParams.has('tgWebAppData')) return true
+    return window.location.search.includes('tgWebApp') || window.location.search.includes('initData')
+}
+
+function isTelegramUserAgent(): boolean {
+    return typeof navigator !== 'undefined' && /\bTelegram\b/i.test(navigator.userAgent)
+}
+
+function hasTelegramHostBridge(): boolean {
+    const hostWindow = window as Window & { external?: { notify?: unknown } }
+    return Boolean(
+        window.TelegramWebviewProxy
+        || window.TelegramWebviewProxyProto
+        || window.TelegramGameProxy
+        || hostWindow.external?.notify
+    )
 }
 
 export function getResolvedAppBackgroundColor(): string | null {
