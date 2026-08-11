@@ -1,3 +1,17 @@
+import {
+    backButton,
+    hapticFeedback,
+    init as initTma,
+    initData,
+    isTMA,
+    miniApp,
+    retrieveLaunchParams,
+    retrieveRawInitData,
+    swipeBehavior,
+    themeParams,
+    viewport,
+} from '@tma.js/sdk'
+
 /**
  * Detects if the current environment is Telegram Mini App
  * by checking URL hash/query parameters that Telegram passes.
@@ -7,6 +21,7 @@ export function isTelegramEnvironment(): boolean {
     if (typeof window === 'undefined') return false
 
     if (window.Telegram?.WebApp) return true
+    if (isTmaEnvironment()) return true
 
     // Telegram passes launch params via window.location.hash
     // Format: #tgWebAppVersion=...&tgWebAppData=...&tgWebAppPlatform=...
@@ -105,6 +120,10 @@ export type TelegramWebApp = {
 
 let lastHapticFeedbackAt = 0
 let removeTelegramInteractionHaptics: (() => void) | null = null
+let tmaInitialized = false
+let tmaInitAttempted = false
+let tmaInitError: string | null = null
+let tmaCleanup: (() => void) | null = null
 
 type TelegramChromeMethod = 'setHeaderColor' | 'setBackgroundColor' | 'setBottomBarColor'
 
@@ -127,7 +146,50 @@ declare global {
 }
 
 export function getTelegramWebApp(): TelegramWebApp | null {
-    return window.Telegram?.WebApp ?? null
+    const nativeWebApp = window.Telegram?.WebApp
+    if (nativeWebApp) return nativeWebApp
+
+    if (!initializeTmaSdk()) return null
+    const rawInitData = safeRead(() => retrieveRawInitData()) ?? ''
+    const launchParams = safeRead(() => retrieveLaunchParams())
+
+    return {
+        initData: rawInitData,
+        initDataUnsafe: {
+            start_param: initData.startParam() ?? launchParams?.tgWebAppStartParam,
+            user: normalizeTelegramUser(initData.user()),
+        },
+        themeParams: normalizeTelegramThemeParams(themeParams.state()),
+        colorScheme: themeParams.isDark() ? 'dark' : 'light',
+        platform: launchParams?.tgWebAppPlatform,
+        version: launchParams?.tgWebAppVersion,
+        headerColor: String(miniApp.headerColor()),
+        backgroundColor: String(miniApp.bgColor()),
+        bottomBarColor: String(miniApp.bottomBarColor()),
+        isVersionAtLeast: (version) => compareVersions(launchParams?.tgWebAppVersion ?? '0', version) >= 0,
+        ready: () => miniApp.ready.ifAvailable(),
+        expand: () => viewport.expand.ifAvailable(),
+        disableVerticalSwipes: () => swipeBehavior.disableVertical.ifAvailable(),
+        setHeaderColor: (color) => setTmaChromeColor('setHeaderColor', color),
+        setBackgroundColor: (color) => setTmaChromeColor('setBackgroundColor', color),
+        setBottomBarColor: (color) => setTmaChromeColor('setBottomBarColor', color),
+        close: () => miniApp.close.ifAvailable(),
+        BackButton: {
+            show: () => backButton.show.ifAvailable(),
+            hide: () => backButton.hide.ifAvailable(),
+            onClick: (callback) => {
+                backButton.onClick.ifAvailable(callback)
+            },
+            offClick: (callback) => {
+                backButton.offClick.ifAvailable(callback)
+            },
+        },
+        HapticFeedback: {
+            impactOccurred: (style) => hapticFeedback.impactOccurred.ifAvailable(style),
+            notificationOccurred: (type) => hapticFeedback.notificationOccurred.ifAvailable(type),
+            selectionChanged: () => hapticFeedback.selectionChanged.ifAvailable(),
+        },
+    }
 }
 
 /**
@@ -270,6 +332,9 @@ function getTelegramEnvironmentSnapshot() {
         hasWindowTelegram: Boolean(window.Telegram),
         hasWindowTelegramWebApp: Boolean(window.Telegram?.WebApp),
         sdkScriptPresent: Boolean(script),
+        tmaInitialized,
+        tmaInitAttempted,
+        tmaInitError,
     }
 }
 
@@ -291,6 +356,118 @@ function hasTelegramHostBridge(): boolean {
         || window.TelegramGameProxy
         || hostWindow.external?.notify
     )
+}
+
+function isTmaEnvironment(): boolean {
+    try {
+        return isTMA()
+    } catch {
+        return false
+    }
+}
+
+function initializeTmaSdk(): boolean {
+    if (typeof window === 'undefined') return false
+    if (tmaInitialized) return true
+    if (tmaInitAttempted) return false
+
+    tmaInitAttempted = true
+    try {
+        tmaCleanup = initTma()
+        tmaInitialized = true
+        tmaInitError = null
+    } catch (error) {
+        tmaInitError = error instanceof Error ? error.message : String(error)
+        return false
+    }
+
+    safeCall(() => initData.restore())
+    safeCall(() => {
+        if (!themeParams.isMounted()) themeParams.mount()
+    })
+    safeCall(() => {
+        if (!miniApp.isMounted()) miniApp.mount()
+    })
+    safeCall(() => {
+        if (!viewport.isMounted()) viewport.mount()
+    })
+    safeCall(() => {
+        if (!swipeBehavior.isMounted()) swipeBehavior.mount()
+    })
+    safeCall(() => {
+        if (!backButton.isMounted()) backButton.mount()
+    })
+
+    return true
+}
+
+function normalizeTelegramUser(user: ReturnType<typeof initData.user>): TelegramWebAppUser | undefined {
+    if (!user) return undefined
+    return {
+        id: user.id,
+        username: user.username,
+        first_name: user.first_name,
+        last_name: user.last_name,
+    }
+}
+
+function normalizeTelegramThemeParams(params: ReturnType<typeof themeParams.state>): TelegramWebAppThemeParams {
+    return {
+        bg_color: params.bgColor,
+        text_color: params.textColor,
+        hint_color: params.hintColor,
+        link_color: params.linkColor,
+        button_color: params.buttonColor,
+        button_text_color: params.buttonTextColor,
+        secondary_bg_color: params.secondaryBgColor,
+    }
+}
+
+function setTmaChromeColor(method: TelegramChromeMethod, color: string): void {
+    if (method === 'setHeaderColor') {
+        if (miniApp.setHeaderColor.isAvailable()) {
+            if (miniApp.setHeaderColor.supports('rgb')) {
+                miniApp.setHeaderColor(color)
+                return
+            }
+            miniApp.setHeaderColor('bg_color')
+        }
+        return
+    }
+
+    if (method === 'setBackgroundColor') {
+        miniApp.setBgColor.ifAvailable(color)
+        return
+    }
+
+    miniApp.setBottomBarColor.ifAvailable(color)
+}
+
+function safeCall(callback: () => void): void {
+    try {
+        callback()
+    } catch {
+        // Telegram features are version/platform dependent.
+    }
+}
+
+function safeRead<T>(callback: () => T): T | null {
+    try {
+        return callback()
+    } catch {
+        return null
+    }
+}
+
+function compareVersions(a: string, b: string): number {
+    const left = a.split('.').map((part) => Number.parseInt(part, 10) || 0)
+    const right = b.split('.').map((part) => Number.parseInt(part, 10) || 0)
+    const length = Math.max(left.length, right.length)
+    for (let index = 0; index < length; index += 1) {
+        const delta = (left[index] ?? 0) - (right[index] ?? 0)
+        if (delta !== 0) return delta
+    }
+    return 0
 }
 
 export function getResolvedAppBackgroundColor(): string | null {
@@ -401,45 +578,10 @@ function isSelectionInteractiveElement(element: HTMLElement): boolean {
 }
 
 /**
- * Dynamically loads the Telegram Web App SDK with timeout.
- * Only call this if isTelegramEnvironment() returns true.
+ * Initializes the Telegram Mini Apps SDK. Kept async for the existing bootstrap contract.
  */
 export function loadTelegramSdk(timeoutMs = 3000): Promise<void> {
-    return new Promise((resolve) => {
-        if (window.Telegram?.WebApp) {
-            resolve()
-            return
-        }
-
-        let settled = false
-        let timedOut = false
-        let timeoutId: ReturnType<typeof setTimeout> | null = null
-        const settle = () => {
-            if (!settled) {
-                settled = true
-                if (timeoutId !== null) {
-                    clearTimeout(timeoutId)
-                }
-                resolve()
-            }
-        }
-
-        // Timeout - don't block app indefinitely
-        timeoutId = setTimeout(() => {
-            timedOut = true
-            settle()
-        }, timeoutMs)
-
-        const script = document.createElement('script')
-        script.src = 'https://telegram.org/js/telegram-web-app.js'
-        script.async = true
-        script.onload = () => {
-            if (timedOut) {
-                configureTelegramWebApp()
-            }
-            settle()
-        }
-        script.onerror = settle
-        document.head.appendChild(script)
-    })
+    void timeoutMs
+    initializeTmaSdk()
+    return Promise.resolve()
 }

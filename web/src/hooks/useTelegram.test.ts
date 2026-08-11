@@ -163,35 +163,11 @@ describe('configureTelegramWebApp', () => {
         expect(normalizeCssColorToHex('transparent')).toBeNull()
     })
 
-    it('configures Telegram when the SDK loads after the timeout fallback', async () => {
-        vi.useFakeTimers()
-        const ready = vi.fn()
-        const expand = vi.fn()
-        const disableVerticalSwipes = vi.fn()
+    it('initializes without injecting the legacy Telegram script', async () => {
+        await loadTelegramSdk()
 
-        const loadPromise = loadTelegramSdk(3000)
         const script = document.head.querySelector<HTMLScriptElement>('script[src="https://telegram.org/js/telegram-web-app.js"]')
-
-        expect(script).not.toBeNull()
-
-        vi.advanceTimersByTime(3000)
-        await loadPromise
-
-        window.Telegram = {
-            WebApp: {
-                initData: 'init-data',
-                themeParams: {},
-                ready,
-                expand,
-                disableVerticalSwipes,
-            },
-        }
-
-        script!.dispatchEvent(new Event('load'))
-
-        expect(ready).toHaveBeenCalledOnce()
-        expect(expand).toHaveBeenCalledOnce()
-        expect(disableVerticalSwipes).toHaveBeenCalledOnce()
+        expect(script).toBeNull()
     })
 
     it('does not emit haptics for programmatic clicks', () => {
