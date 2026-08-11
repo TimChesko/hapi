@@ -12,7 +12,7 @@ import {
     viewport,
 } from '@tma.js/sdk'
 
-const TELEGRAM_DEBUG_BUILD_ID = 'tma-sdk-debug-e9ccd813-20260811'
+const TELEGRAM_DEBUG_BUILD_ID = 'tma-sdk-debug-24ffd8f3-20260811'
 const TMA_INIT_RETRY_DELAY_MS = 500
 const TMA_FALLBACK_VERSION = '9.0'
 const TELEGRAM_DEBUG_PAGE_ID = createTelegramDebugPageId()
