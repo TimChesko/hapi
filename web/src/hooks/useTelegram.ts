@@ -52,7 +52,11 @@ export type TelegramWebApp = {
     initDataUnsafe?: TelegramWebAppInitDataUnsafe
     themeParams: TelegramWebAppThemeParams
     colorScheme?: 'light' | 'dark'
+    platform?: string
     version?: string
+    headerColor?: string
+    backgroundColor?: string
+    bottomBarColor?: string
     isVersionAtLeast?: (version: string) => boolean
     ready: () => void
     expand: () => void
@@ -100,6 +104,15 @@ export type TelegramWebApp = {
 let lastHapticFeedbackAt = 0
 let removeTelegramInteractionHaptics: (() => void) | null = null
 
+type TelegramChromeMethod = 'setHeaderColor' | 'setBackgroundColor' | 'setBottomBarColor'
+
+type TelegramChromeAttempt = {
+    method: TelegramChromeMethod
+    candidate: string
+    ok: boolean
+    error?: string
+}
+
 declare global {
     interface Window {
         Telegram?: {
@@ -138,26 +151,29 @@ export function syncTelegramWebAppThemeColors(color = getResolvedAppBackgroundCo
     const tg = getTelegramWebApp()
     if (!tg || !color) return
 
-    setTelegramHeaderColor(tg, color)
-    setTelegramChromeColor(tg, 'setBackgroundColor', color, ['bg_color'])
-    setTelegramChromeColor(tg, 'setBottomBarColor', color, ['bottom_bar_bg_color', 'bg_color'])
+    const attempts: TelegramChromeAttempt[] = []
+    setTelegramHeaderColor(tg, color, attempts)
+    setTelegramChromeColor(tg, 'setBackgroundColor', color, ['bg_color'], attempts)
+    setTelegramChromeColor(tg, 'setBottomBarColor', color, ['bottom_bar_bg_color', 'bg_color'], attempts)
+    reportTelegramChromeSync(color, attempts)
 }
 
-function setTelegramHeaderColor(tg: TelegramWebApp, color: string): void {
+function setTelegramHeaderColor(tg: TelegramWebApp, color: string, attempts: TelegramChromeAttempt[]): void {
     if (!tg.setHeaderColor) return
 
     if (!tg.isVersionAtLeast || tg.isVersionAtLeast('6.9')) {
-        if (setTelegramChromeColor(tg, 'setHeaderColor', color)) return
+        if (setTelegramChromeColor(tg, 'setHeaderColor', color, [], attempts)) return
     }
 
-    setTelegramChromeColor(tg, 'setHeaderColor', color, ['bg_color', 'secondary_bg_color'])
+    setTelegramChromeColor(tg, 'setHeaderColor', color, ['bg_color', 'secondary_bg_color'], attempts)
 }
 
 function setTelegramChromeColor(
     tg: TelegramWebApp,
-    method: 'setHeaderColor' | 'setBackgroundColor' | 'setBottomBarColor',
+    method: TelegramChromeMethod,
     color: string,
-    fallbackColors: string[] = []
+    fallbackColors: string[] = [],
+    attempts: TelegramChromeAttempt[] = []
 ): boolean {
     const setter = tg[method]
     if (!setter) return false
@@ -165,14 +181,57 @@ function setTelegramChromeColor(
     for (const candidate of [color, ...fallbackColors]) {
         try {
             setter.call(tg, candidate)
+            attempts.push({ method, candidate, ok: true })
             return true
-        } catch {
+        } catch (error) {
+            attempts.push({
+                method,
+                candidate,
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+            })
             // Some Telegram clients reject custom hex colors for specific
             // chrome surfaces. Keep the other surfaces independent.
         }
     }
 
     return false
+}
+
+function reportTelegramChromeSync(color: string, attempts: TelegramChromeAttempt[]): void {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+
+    const tg = getTelegramWebApp()
+    if (!tg) return
+
+    const body = JSON.stringify({
+        event: 'telegram-chrome-sync',
+        color,
+        resolvedAppBg: getResolvedAppBackgroundColor(),
+        dataTheme: document.documentElement.getAttribute('data-theme'),
+        colorTheme: document.documentElement.getAttribute('data-color-theme'),
+        telegram: {
+            version: tg.version ?? null,
+            platform: tg.platform ?? null,
+            colorScheme: tg.colorScheme ?? null,
+            headerColor: tg.headerColor ?? null,
+            backgroundColor: tg.backgroundColor ?? null,
+            bottomBarColor: tg.bottomBarColor ?? null,
+            hasSetHeaderColor: typeof tg.setHeaderColor === 'function',
+            hasSetBackgroundColor: typeof tg.setBackgroundColor === 'function',
+            hasSetBottomBarColor: typeof tg.setBottomBarColor === 'function',
+        },
+        attempts,
+    })
+
+    void fetch('/api/debug/telegram', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+        keepalive: true,
+    }).catch(() => {
+        // Debug-only best effort.
+    })
 }
 
 export function getResolvedAppBackgroundColor(): string | null {
