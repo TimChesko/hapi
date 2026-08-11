@@ -108,6 +108,30 @@ describe('configureTelegramWebApp', () => {
         expect(setBottomBarColor).toHaveBeenCalledWith('#1f271d')
     })
 
+    it('calls Telegram chrome setters with the WebApp receiver', () => {
+        const receivers: unknown[] = []
+        const webApp = {
+            initData: 'init-data',
+            themeParams: {},
+            ready: vi.fn(),
+            expand: vi.fn(),
+            setHeaderColor(this: unknown) {
+                receivers.push(this)
+            },
+            setBackgroundColor(this: unknown) {
+                receivers.push(this)
+            },
+            setBottomBarColor(this: unknown) {
+                receivers.push(this)
+            },
+        }
+        window.Telegram = { WebApp: webApp }
+
+        syncTelegramWebAppThemeColors('#1f271d')
+
+        expect(receivers).toEqual([webApp, webApp, webApp])
+    })
+
     it('can defer Telegram chrome color sync until the app theme is applied', () => {
         const setHeaderColor = vi.fn()
         const setBackgroundColor = vi.fn()

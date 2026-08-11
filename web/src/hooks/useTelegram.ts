@@ -139,30 +139,32 @@ export function syncTelegramWebAppThemeColors(color = getResolvedAppBackgroundCo
     if (!tg || !color) return
 
     setTelegramHeaderColor(tg, color)
-    setTelegramChromeColor(tg.setBackgroundColor, color, ['bg_color'])
-    setTelegramChromeColor(tg.setBottomBarColor, color, ['bottom_bar_bg_color', 'bg_color'])
+    setTelegramChromeColor(tg, 'setBackgroundColor', color, ['bg_color'])
+    setTelegramChromeColor(tg, 'setBottomBarColor', color, ['bottom_bar_bg_color', 'bg_color'])
 }
 
 function setTelegramHeaderColor(tg: TelegramWebApp, color: string): void {
     if (!tg.setHeaderColor) return
 
     if (!tg.isVersionAtLeast || tg.isVersionAtLeast('6.9')) {
-        if (setTelegramChromeColor(tg.setHeaderColor, color)) return
+        if (setTelegramChromeColor(tg, 'setHeaderColor', color)) return
     }
 
-    setTelegramChromeColor(tg.setHeaderColor, color, ['bg_color', 'secondary_bg_color'])
+    setTelegramChromeColor(tg, 'setHeaderColor', color, ['bg_color', 'secondary_bg_color'])
 }
 
 function setTelegramChromeColor(
-    setter: ((color: string) => void) | undefined,
+    tg: TelegramWebApp,
+    method: 'setHeaderColor' | 'setBackgroundColor' | 'setBottomBarColor',
     color: string,
     fallbackColors: string[] = []
 ): boolean {
+    const setter = tg[method]
     if (!setter) return false
 
     for (const candidate of [color, ...fallbackColors]) {
         try {
-            setter(candidate)
+            setter.call(tg, candidate)
             return true
         } catch {
             // Some Telegram clients reject custom hex colors for specific
