@@ -12,7 +12,7 @@ import {
     viewport,
 } from '@tma.js/sdk'
 
-const TELEGRAM_DEBUG_BUILD_ID = 'tma-sdk-debug-24ffd8f3-20260811'
+const TELEGRAM_DEBUG_BUILD_ID = 'tma-bridge-debug-20260811'
 const TMA_INIT_RETRY_DELAY_MS = 500
 const TMA_FALLBACK_VERSION = '9.0'
 const TELEGRAM_DEBUG_PAGE_ID = createTelegramDebugPageId()
@@ -132,10 +132,21 @@ let tmaInitError: string | null = null
 let lastTmaInitAttemptAt = 0
 let tmaCleanup: (() => void) | null = null
 
-type TelegramChromeMethod = 'setHeaderColor' | 'setBackgroundColor' | 'setBottomBarColor'
+type TelegramAppChromeMethod =
+    | 'setHeaderColor'
+    | 'setBackgroundColor'
+    | 'setBottomBarColor'
+
+type TelegramBridgeMethod =
+    | 'web_app_set_header_color'
+    | 'web_app_set_background_color'
+    | 'web_app_set_bottom_bar_color'
+    | 'web_app_ready'
+    | 'web_app_expand'
+    | 'web_app_setup_swipe_behavior'
 
 type TelegramChromeAttempt = {
-    method: TelegramChromeMethod
+    method: TelegramAppChromeMethod | TelegramBridgeMethod
     candidate: string
     ok: boolean
     error?: string
@@ -147,7 +158,9 @@ declare global {
             WebApp?: TelegramWebApp
         }
         TelegramGameProxy?: unknown
-        TelegramWebviewProxy?: unknown
+        TelegramWebviewProxy?: {
+            postEvent?: (eventType: string, eventData: string) => void
+        }
         TelegramWebviewProxyProto?: unknown
     }
 }
@@ -156,6 +169,7 @@ export function getTelegramWebApp(): TelegramWebApp | null {
     const nativeWebApp = window.Telegram?.WebApp
     if (nativeWebApp) return nativeWebApp
 
+    if (!isTelegramEnvironment()) return null
     if (!initializeTmaSdk()) return null
     const rawInitData = safeRead(() => retrieveRawInitData()) ?? ''
     const launchParams = safeRead(() => retrieveLaunchParams())
@@ -211,7 +225,12 @@ export function isTelegramApp(): boolean {
 export function configureTelegramWebApp(options: { syncThemeColors?: boolean } = {}): void {
     const tg = getTelegramWebApp()
     if (!tg) {
-        reportTelegramChromeSync(null, [], 'no-webapp')
+        const attempts = configureTelegramChromeViaBridge()
+        reportTelegramChromeSync(null, attempts, attempts.length > 0 ? 'attempted' : 'no-webapp')
+        if (attempts.length > 0 && (options.syncThemeColors ?? true)) {
+            syncTelegramWebAppThemeColors()
+            installTelegramInteractionHaptics()
+        }
         return
     }
 
@@ -226,19 +245,19 @@ export function configureTelegramWebApp(options: { syncThemeColors?: boolean } =
 
 export function syncTelegramWebAppThemeColors(color = getResolvedAppBackgroundColor()): void {
     const tg = getTelegramWebApp()
-    if (!tg) {
-        reportTelegramChromeSync(color, [], 'no-webapp')
-        return
-    }
     if (!color) {
         reportTelegramChromeSync(null, [], 'no-color')
         return
     }
 
     const attempts: TelegramChromeAttempt[] = []
-    setTelegramHeaderColor(tg, color, attempts)
-    setTelegramChromeColor(tg, 'setBackgroundColor', color, ['bg_color'], attempts)
-    setTelegramChromeColor(tg, 'setBottomBarColor', color, ['bottom_bar_bg_color', 'bg_color'], attempts)
+    if (tg) {
+        setTelegramHeaderColor(tg, color, attempts)
+        setTelegramChromeColor(tg, 'setBackgroundColor', color, ['bg_color'], attempts)
+        setTelegramChromeColor(tg, 'setBottomBarColor', color, ['bottom_bar_bg_color', 'bg_color'], attempts)
+    } else {
+        syncTelegramChromeColorsViaBridge(color, attempts)
+    }
     reportTelegramChromeSync(color, attempts, 'attempted')
 }
 
@@ -254,7 +273,7 @@ function setTelegramHeaderColor(tg: TelegramWebApp, color: string, attempts: Tel
 
 function setTelegramChromeColor(
     tg: TelegramWebApp,
-    method: TelegramChromeMethod,
+    method: TelegramAppChromeMethod,
     color: string,
     fallbackColors: string[] = [],
     attempts: TelegramChromeAttempt[] = []
@@ -289,7 +308,7 @@ function reportTelegramChromeSync(
 ): void {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
 
-    const tg = getTelegramWebApp()
+    const tg = getCurrentTelegramWebAppForDebug()
 
     const body = JSON.stringify({
         event: 'telegram-chrome-sync',
@@ -369,6 +388,7 @@ function getTelegramEnvironmentSnapshot() {
         hasTelegramLaunchParams: hasTelegramLaunchParams(),
         hasTelegramUserAgent: isTelegramUserAgent(),
         hasTelegramHostBridge: hasTelegramHostBridge(),
+        telegramHostBridge: getTelegramHostBridgeSnapshot(),
         hasWindowTelegram: Boolean(window.Telegram),
         hasWindowTelegramWebApp: Boolean(window.Telegram?.WebApp),
         sdkScriptPresent: Boolean(script),
@@ -434,6 +454,17 @@ function hasTelegramHostBridge(): boolean {
         || window.TelegramGameProxy
         || hostWindow.external?.notify
     )
+}
+
+function getTelegramHostBridgeSnapshot(): Record<string, boolean> {
+    const hostWindow = window as Window & { external?: { notify?: unknown } }
+    return {
+        hasTelegramWebviewProxy: Boolean(window.TelegramWebviewProxy),
+        hasTelegramWebviewProxyPostEvent: typeof window.TelegramWebviewProxy?.postEvent === 'function',
+        hasTelegramWebviewProxyProto: Boolean(window.TelegramWebviewProxyProto),
+        hasTelegramGameProxy: Boolean(window.TelegramGameProxy),
+        hasExternalNotify: typeof hostWindow.external?.notify === 'function',
+    }
 }
 
 function isTmaEnvironment(): boolean {
@@ -510,6 +541,15 @@ function initializeTmaSdkWithoutLaunchParams(cause: unknown): boolean {
         return true
     } catch (error) {
         tmaInitError = error instanceof Error ? error.message : String(error)
+        reportTelegramDebug('telegram-tma-init', {
+            stage: 'fallback-failed',
+            fallbackVersion: TMA_FALLBACK_VERSION,
+            hostBridge: getTelegramHostBridgeSnapshot(),
+            causeName: cause instanceof Error ? cause.name : typeof cause,
+            causeMessage: cause instanceof Error ? cause.message : String(cause),
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: tmaInitError,
+        })
         return false
     }
 }
@@ -536,7 +576,7 @@ function normalizeTelegramThemeParams(params: ReturnType<typeof themeParams.stat
     }
 }
 
-function setTmaChromeColor(method: TelegramChromeMethod, color: string): void {
+function setTmaChromeColor(method: TelegramAppChromeMethod, color: string): void {
     if (method === 'setHeaderColor') {
         if (miniApp.setHeaderColor.isAvailable()) {
             if (miniApp.setHeaderColor.supports('rgb')) {
@@ -554,6 +594,81 @@ function setTmaChromeColor(method: TelegramChromeMethod, color: string): void {
     }
 
     miniApp.setBottomBarColor.ifAvailable(color)
+}
+
+function configureTelegramChromeViaBridge(): TelegramChromeAttempt[] {
+    const attempts: TelegramChromeAttempt[] = []
+    if (!hasTelegramHostBridge()) return attempts
+
+    postTelegramBridgeEvent('web_app_ready', undefined, attempts)
+    postTelegramBridgeEvent('web_app_expand', undefined, attempts)
+    postTelegramBridgeEvent('web_app_setup_swipe_behavior', { allow_vertical_swipe: false }, attempts)
+    return attempts
+}
+
+function syncTelegramChromeColorsViaBridge(color: string, attempts: TelegramChromeAttempt[]): void {
+    if (!hasTelegramHostBridge()) return
+
+    postTelegramBridgeEvent('web_app_set_header_color', { color }, attempts)
+    postTelegramBridgeEvent('web_app_set_header_color', { color_key: 'bg_color' }, attempts)
+    postTelegramBridgeEvent('web_app_set_background_color', { color }, attempts)
+    postTelegramBridgeEvent('web_app_set_bottom_bar_color', { color }, attempts)
+}
+
+function postTelegramBridgeEvent(
+    method: TelegramBridgeMethod,
+    params: Record<string, unknown> | undefined,
+    attempts: TelegramChromeAttempt[]
+): boolean {
+    try {
+        postTelegramRawEvent(method, params)
+        attempts.push({ method, candidate: params ? JSON.stringify(params) : 'none', ok: true })
+        return true
+    } catch (error) {
+        attempts.push({
+            method,
+            candidate: params ? JSON.stringify(params) : 'none',
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+        })
+        return false
+    }
+}
+
+function postTelegramRawEvent(method: TelegramBridgeMethod, params: Record<string, unknown> | undefined): void {
+    const serializedParams = JSON.stringify(params ?? {})
+    if (typeof window.TelegramWebviewProxy?.postEvent === 'function') {
+        window.TelegramWebviewProxy.postEvent(method, serializedParams)
+        return
+    }
+
+    const hostWindow = window as Window & { external?: { notify?: (message: string) => void } }
+    if (typeof hostWindow.external?.notify === 'function') {
+        hostWindow.external.notify(JSON.stringify({ eventType: method, eventData: params ?? {} }))
+        return
+    }
+
+    throw new Error('Telegram host bridge is unavailable')
+}
+
+function getCurrentTelegramWebAppForDebug(): TelegramWebApp | null {
+    const nativeWebApp = window.Telegram?.WebApp
+    if (nativeWebApp) return nativeWebApp
+    if (!tmaInitialized) return null
+
+    const launchParams = safeRead(() => retrieveLaunchParams())
+    return {
+        initData: safeRead(() => retrieveRawInitData()) ?? '',
+        themeParams: normalizeTelegramThemeParams(themeParams.state()),
+        colorScheme: themeParams.isDark() ? 'dark' : 'light',
+        platform: launchParams?.tgWebAppPlatform,
+        version: launchParams?.tgWebAppVersion,
+        headerColor: String(miniApp.headerColor()),
+        backgroundColor: String(miniApp.bgColor()),
+        bottomBarColor: String(miniApp.bottomBarColor()),
+        ready: () => {},
+        expand: () => {},
+    }
 }
 
 function safeCall(callback: () => void): void {

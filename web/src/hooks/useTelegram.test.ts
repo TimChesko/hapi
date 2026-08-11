@@ -3,6 +3,7 @@ import { configureTelegramWebApp, loadTelegramSdk, normalizeCssColorToHex, syncT
 
 afterEach(() => {
     delete window.Telegram
+    delete window.TelegramWebviewProxy
     document.head.querySelectorAll('script[src="https://telegram.org/js/telegram-web-app.js"]').forEach((script) => script.remove())
     vi.useRealTimers()
 })
@@ -81,6 +82,17 @@ describe('configureTelegramWebApp', () => {
         expect(setHeaderColor).toHaveBeenCalledWith('#123abc')
         expect(setBackgroundColor).toHaveBeenCalledWith('#123abc')
         expect(setBottomBarColor).toHaveBeenCalledWith('#123abc')
+    })
+
+    it('falls back to raw Telegram bridge events when WebApp SDK is unavailable', () => {
+        const postEvent = vi.fn()
+        window.TelegramWebviewProxy = { postEvent }
+
+        syncTelegramWebAppThemeColors('#123abc')
+
+        expect(postEvent).toHaveBeenCalledWith('web_app_set_header_color', JSON.stringify({ color: '#123abc' }))
+        expect(postEvent).toHaveBeenCalledWith('web_app_set_background_color', JSON.stringify({ color: '#123abc' }))
+        expect(postEvent).toHaveBeenCalledWith('web_app_set_bottom_bar_color', JSON.stringify({ color: '#123abc' }))
     })
 
     it('keeps syncing other Telegram chrome surfaces when one setter rejects a color', () => {
