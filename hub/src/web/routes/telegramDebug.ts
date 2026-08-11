@@ -1,46 +1,5 @@
 import { Hono } from 'hono'
-import { z } from 'zod'
 import type { WebAppEnv } from '../middleware/auth'
-
-const telegramChromeAttemptSchema = z.object({
-    method: z.string().max(32),
-    candidate: z.string().max(64),
-    ok: z.boolean(),
-    error: z.string().max(200).optional(),
-})
-
-const telegramDebugValueSchema = z.union([
-    z.string().max(500),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(z.union([z.string().max(500), z.number(), z.boolean(), z.null()])).max(30),
-])
-
-const telegramDebugSchema = z.object({
-    event: z.string().max(80),
-    buildId: z.string().max(80).optional(),
-    reason: z.enum(['attempted', 'no-webapp', 'no-color']).optional(),
-    color: z.string().max(64).nullable().optional(),
-    resolvedAppBg: z.string().max(64).nullable().optional(),
-    dataTheme: z.string().max(32).nullable().optional(),
-    colorTheme: z.string().max(32).nullable().optional(),
-    stage: z.string().max(80).optional(),
-    environment: z.record(z.string(), telegramDebugValueSchema).optional(),
-    tma: z.record(z.string(), telegramDebugValueSchema).optional(),
-    telegram: z.object({
-        version: z.string().max(32).nullable(),
-        platform: z.string().max(32).nullable(),
-        colorScheme: z.string().max(16).nullable(),
-        headerColor: z.string().max(64).nullable(),
-        backgroundColor: z.string().max(64).nullable(),
-        bottomBarColor: z.string().max(64).nullable(),
-        hasSetHeaderColor: z.boolean(),
-        hasSetBackgroundColor: z.boolean(),
-        hasSetBottomBarColor: z.boolean(),
-    }).optional(),
-    attempts: z.array(telegramChromeAttemptSchema).max(12).optional(),
-}).passthrough()
 
 export function createTelegramDebugRoutes(): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
@@ -58,13 +17,12 @@ export function createTelegramDebugRoutes(): Hono<WebAppEnv> {
             return c.json({ error: 'Invalid JSON' }, 400)
         }
 
-        const parsed = telegramDebugSchema.safeParse(json)
-        if (!parsed.success) {
+        if (!json || typeof json !== 'object' || Array.isArray(json)) {
             return c.json({ error: 'Invalid body' }, 400)
         }
 
         console.info('[telegram-debug]', JSON.stringify({
-            ...parsed.data,
+            ...sanitizeDebugRecord(json),
             request: {
                 userAgent: c.req.header('user-agent') ?? null,
                 forwardedFor: c.req.header('x-forwarded-for') ?? null,
@@ -75,4 +33,28 @@ export function createTelegramDebugRoutes(): Hono<WebAppEnv> {
     })
 
     return app
+}
+
+function sanitizeDebugRecord(value: object): Record<string, unknown> {
+    return sanitizeDebugValue(value, 0) as Record<string, unknown>
+}
+
+function sanitizeDebugValue(value: unknown, depth: number): unknown {
+    if (value === null || typeof value === 'boolean' || typeof value === 'number') return value
+    if (typeof value === 'string') return value.slice(0, 1_000)
+    if (depth >= 4) return '[truncated]'
+
+    if (Array.isArray(value)) {
+        return value.slice(0, 30).map((item) => sanitizeDebugValue(item, depth + 1))
+    }
+
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value)
+                .slice(0, 60)
+                .map(([key, item]) => [key.slice(0, 80), sanitizeDebugValue(item, depth + 1)])
+        )
+    }
+
+    return String(value)
 }
