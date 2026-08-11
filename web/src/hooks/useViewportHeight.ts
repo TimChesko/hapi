@@ -15,7 +15,12 @@ export function updateAppViewportHeight(params: {
     const roundedViewportHeight = Math.round(viewportHeight)
     const diff = windowHeight - viewportHeight
 
-    if (roundedViewportHeight > 0 && (isTelegram || diff > 1)) {
+    if (isTelegram) {
+        root.style.removeProperty('--app-viewport-height')
+        return
+    }
+
+    if (roundedViewportHeight > 0 && diff > 1) {
         root.style.setProperty('--app-viewport-height', `${roundedViewportHeight}px`)
         // On iOS PWA (black-translucent status bar + viewport-fit=cover),
         // the browser scrolls the page upward when the keyboard opens to keep
@@ -37,9 +42,9 @@ export function updateAppViewportHeight(params: {
  * composer input is hidden behind the keyboard.
  *
  * The hook listens to `window.visualViewport.resize` and writes the viewport
- * height into the CSS variable. In Telegram Mini Apps we keep this variable set
- * all the time as a fallback for clients that do not refresh SDK viewport CSS
- * variables after native chrome color changes.
+ * height into the CSS variable. Telegram Mini Apps are excluded because some
+ * Telegram webviews report a visual viewport that is shorter than the actual
+ * app surface after native chrome changes.
  */
 export function useViewportHeight(): void {
     useEffect(() => {

@@ -60,7 +60,9 @@ describe('useViewportHeight update logic', () => {
         expect(root.style.getPropertyValue('--app-viewport-height')).toBe('')
     })
 
-    it('keeps --app-viewport-height set in Telegram Mini Apps', () => {
+    it('does not override root height in Telegram Mini Apps', () => {
+        root.style.setProperty('--app-viewport-height', '607px')
+
         updateAppViewportHeight({
             root,
             viewportHeight: 702.4,
@@ -70,7 +72,7 @@ describe('useViewportHeight update logic', () => {
             scrollTo: vi.fn(),
         })
 
-        expect(root.style.getPropertyValue('--app-viewport-height')).toBe('702px')
+        expect(root.style.getPropertyValue('--app-viewport-height')).toBe('')
     })
 
     it('resets page scroll when keyboard is open', () => {
