@@ -412,7 +412,7 @@ function createTelegramDebugPageId(): string {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
-function getTmaSnapshot(): Record<string, string | number | boolean | null> {
+function getTmaSnapshot(): Record<string, unknown> {
     const launchParams = safeRead(() => retrieveLaunchParams())
     return {
         buildId: TELEGRAM_DEBUG_BUILD_ID,
@@ -436,6 +436,7 @@ function getTmaSnapshot(): Record<string, string | number | boolean | null> {
         visualViewportWidth: window.visualViewport?.width ?? null,
         visualViewportOffsetTop: window.visualViewport?.offsetTop ?? null,
         windowInnerHeight: window.innerHeight,
+        documentGeometry: getDocumentGeometrySnapshot(),
         swipeBehaviorMounted: safeRead(() => swipeBehavior.isMounted()) ?? false,
         backButtonMounted: safeRead(() => backButton.isMounted()) ?? false,
         readyAvailable: safeRead(() => miniApp.ready.isAvailable()) ?? false,
@@ -641,8 +642,8 @@ function configureTelegramChromeViaBridge(): TelegramChromeAttempt[] {
     if (!hasTelegramHostBridge()) return attempts
 
     postTelegramBridgeEvent('web_app_ready', undefined, attempts)
-    postTelegramBridgeEvent('web_app_expand', undefined, attempts)
     postTelegramBridgeEvent('web_app_setup_swipe_behavior', { allow_vertical_swipe: false }, attempts)
+    resetTelegramDocumentDrift('bridge-configure')
     return attempts
 }
 
@@ -652,6 +653,7 @@ function syncTelegramChromeColorsViaBridge(color: string, attempts: TelegramChro
     postTelegramBridgeEvent('web_app_set_header_color', { color }, attempts)
     postTelegramBridgeEvent('web_app_set_background_color', { color }, attempts)
     postTelegramBridgeEvent('web_app_set_bottom_bar_color', { color }, attempts)
+    resetTelegramDocumentDrift('bridge-color-sync')
 }
 
 function postTelegramBridgeEvent(
@@ -722,10 +724,54 @@ function scheduleViewportHeightRefresh(reason: string): void {
     for (const delay of [0, 50, 250, 600]) {
         window.setTimeout(() => {
             window.dispatchEvent(new Event(APP_VIEWPORT_HEIGHT_REFRESH_EVENT))
+            resetTelegramDocumentDrift(reason)
             if (delay === 250) {
                 reportTelegramDebug('telegram-viewport-refresh', { reason, delay })
             }
         }, delay)
+    }
+}
+
+function resetTelegramDocumentDrift(reason: string): void {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+    if (!isTelegramEnvironment()) return
+
+    const reset = () => {
+        document.documentElement.scrollTop = 0
+        if (document.body) document.body.scrollTop = 0
+        if (window.scrollX !== 0 || window.scrollY !== 0) {
+            safeCall(() => window.scrollTo(0, 0))
+        }
+    }
+
+    window.requestAnimationFrame(reset)
+    window.setTimeout(reset, 50)
+    window.setTimeout(() => {
+        reset()
+        reportTelegramDebug('telegram-document-drift-reset', { reason })
+    }, 250)
+}
+
+function getDocumentGeometrySnapshot(): Record<string, number | null> | null {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return null
+
+    const htmlRect = document.documentElement.getBoundingClientRect()
+    const bodyRect = document.body?.getBoundingClientRect()
+    const rootRect = document.getElementById('root')?.getBoundingClientRect()
+    return {
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        htmlScrollTop: document.documentElement.scrollTop,
+        bodyScrollTop: document.body?.scrollTop ?? null,
+        htmlTop: htmlRect.top,
+        htmlBottom: htmlRect.bottom,
+        htmlHeight: htmlRect.height,
+        bodyTop: bodyRect?.top ?? null,
+        bodyBottom: bodyRect?.bottom ?? null,
+        bodyHeight: bodyRect?.height ?? null,
+        rootTop: rootRect?.top ?? null,
+        rootBottom: rootRect?.bottom ?? null,
+        rootHeight: rootRect?.height ?? null,
     }
 }
 

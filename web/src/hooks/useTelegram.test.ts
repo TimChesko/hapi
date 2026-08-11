@@ -95,6 +95,17 @@ describe('configureTelegramWebApp', () => {
         expect(postEvent).toHaveBeenCalledWith('web_app_set_bottom_bar_color', JSON.stringify({ color: '#123abc' }))
     })
 
+    it('does not expand through the raw bridge fallback', () => {
+        const postEvent = vi.fn()
+        window.TelegramWebviewProxy = { postEvent }
+
+        configureTelegramWebApp()
+
+        expect(postEvent).toHaveBeenCalledWith('web_app_ready', JSON.stringify({}))
+        expect(postEvent).toHaveBeenCalledWith('web_app_setup_swipe_behavior', JSON.stringify({ allow_vertical_swipe: false }))
+        expect(postEvent).not.toHaveBeenCalledWith('web_app_expand', expect.any(String))
+    })
+
     it('keeps syncing other Telegram chrome surfaces when one setter rejects a color', () => {
         const setHeaderColor = vi.fn(() => {
             throw new Error('unsupported color')
