@@ -14,6 +14,7 @@ import {
 
 const TELEGRAM_DEBUG_BUILD_ID = 'tma-sdk-debug-bafb5056-20260811'
 const TMA_INIT_RETRY_DELAY_MS = 500
+const TMA_FALLBACK_VERSION = '9.0'
 
 /**
  * Detects if the current environment is Telegram Mini App
@@ -443,12 +444,14 @@ function initializeTmaSdk(): boolean {
         tmaInitError = null
     } catch (error) {
         tmaInitError = error instanceof Error ? error.message : String(error)
-        reportTelegramDebug('telegram-tma-init', {
-            stage: 'failed',
-            errorName: error instanceof Error ? error.name : typeof error,
-            errorMessage: tmaInitError,
-        })
-        return false
+        if (!initializeTmaSdkWithoutLaunchParams(error)) {
+            reportTelegramDebug('telegram-tma-init', {
+                stage: 'failed',
+                errorName: error instanceof Error ? error.name : typeof error,
+                errorMessage: tmaInitError,
+            })
+            return false
+        }
     }
 
     safeCall(() => initData.restore())
@@ -470,6 +473,29 @@ function initializeTmaSdk(): boolean {
 
     reportTelegramDebug('telegram-tma-init', { stage: 'mounted' })
     return true
+}
+
+function initializeTmaSdkWithoutLaunchParams(cause: unknown): boolean {
+    if (!hasTelegramHostBridge()) return false
+
+    try {
+        tmaCleanup = initTma({
+            version: TMA_FALLBACK_VERSION,
+            themeParams: {},
+        })
+        tmaInitialized = true
+        tmaInitError = null
+        reportTelegramDebug('telegram-tma-init', {
+            stage: 'fallback',
+            fallbackVersion: TMA_FALLBACK_VERSION,
+            errorName: cause instanceof Error ? cause.name : typeof cause,
+            errorMessage: cause instanceof Error ? cause.message : String(cause),
+        })
+        return true
+    } catch (error) {
+        tmaInitError = error instanceof Error ? error.message : String(error)
+        return false
+    }
 }
 
 function normalizeTelegramUser(user: ReturnType<typeof initData.user>): TelegramWebAppUser | undefined {
