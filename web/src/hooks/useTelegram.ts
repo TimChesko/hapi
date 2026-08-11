@@ -15,6 +15,7 @@ import {
 const TELEGRAM_DEBUG_BUILD_ID = 'tma-sdk-debug-e9ccd813-20260811'
 const TMA_INIT_RETRY_DELAY_MS = 500
 const TMA_FALLBACK_VERSION = '9.0'
+const TELEGRAM_DEBUG_PAGE_ID = createTelegramDebugPageId()
 
 /**
  * Detects if the current environment is Telegram Mini App
@@ -352,10 +353,17 @@ function getTelegramEnvironmentSnapshot() {
     const script = document.head.querySelector<HTMLScriptElement>('script[src="https://telegram.org/js/telegram-web-app.js"]')
     const hashParams = new URLSearchParams(window.location.hash.slice(1))
     const searchParams = new URLSearchParams(window.location.search)
+    const navigationEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
 
     return {
+        debugPageId: TELEGRAM_DEBUG_PAGE_ID,
         detected: isTelegramEnvironment(),
         telegramAppDataset: document.documentElement.dataset.telegramApp ?? null,
+        pathname: window.location.pathname,
+        visibilityState: document.visibilityState,
+        readyState: document.readyState,
+        navigationType: navigationEntry?.type ?? null,
+        userAgent: navigator.userAgent,
         hashKeys: Array.from(hashParams.keys()).filter((key) => key.startsWith('tgWebApp')),
         searchKeys: Array.from(searchParams.keys()).filter((key) => key.includes('tg') || key.includes('initData')),
         hasTelegramLaunchParams: hasTelegramLaunchParams(),
@@ -371,6 +379,14 @@ function getTelegramEnvironmentSnapshot() {
         locationHashLength: window.location.hash.length,
         locationSearchLength: window.location.search.length,
     }
+}
+
+function createTelegramDebugPageId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID()
+    }
+
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 function getTmaSnapshot(): Record<string, string | number | boolean | null> {

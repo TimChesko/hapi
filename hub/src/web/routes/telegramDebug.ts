@@ -63,7 +63,14 @@ export function createTelegramDebugRoutes(): Hono<WebAppEnv> {
             return c.json({ error: 'Invalid body' }, 400)
         }
 
-        console.info('[telegram-debug]', JSON.stringify(parsed.data))
+        console.info('[telegram-debug]', JSON.stringify({
+            ...parsed.data,
+            request: {
+                userAgent: c.req.header('user-agent') ?? null,
+                forwardedFor: c.req.header('x-forwarded-for') ?? null,
+                realIp: c.req.header('x-real-ip') ?? null,
+            },
+        }))
         return c.json({ ok: true })
     })
 
