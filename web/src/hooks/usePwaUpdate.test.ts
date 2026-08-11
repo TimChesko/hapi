@@ -141,6 +141,22 @@ describe('requestPwaUpdateReload', () => {
 
         vi.useRealTimers()
     })
+
+    it('falls back to reload when updateSW never resolves', () => {
+        vi.useFakeTimers()
+
+        const updateSW = vi.fn(() => new Promise<void>(() => {}))
+        const reloadPage = vi.fn()
+
+        void requestPwaUpdateReload(updateSW, { reloadPage })
+
+        vi.advanceTimersByTime(PWA_UPDATE_RELOAD_FALLBACK_MS)
+
+        expect(updateSW).toHaveBeenCalledWith(true)
+        expect(reloadPage).toHaveBeenCalledTimes(1)
+
+        vi.useRealTimers()
+    })
 })
 
 describe('usePwaUpdate', () => {

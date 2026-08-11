@@ -22,11 +22,21 @@ export async function requestPwaUpdateReload(
     }
 
     let reloaded = false
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined
+    const clearFallbackTimer = () => {
+        if (fallbackTimer === undefined) {
+            return
+        }
+
+        clearTimeoutFn(fallbackTimer)
+        fallbackTimer = undefined
+    }
     const doReload = () => {
         if (reloaded) {
             return
         }
         reloaded = true
+        clearFallbackTimer()
         reloadPage()
     }
 
@@ -37,24 +47,18 @@ export async function requestPwaUpdateReload(
 
     navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
 
-    let fallbackTimer: ReturnType<typeof setTimeout> | undefined
+    fallbackTimer = setTimeoutFn(() => {
+        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
+        doReload()
+    }, PWA_UPDATE_RELOAD_FALLBACK_MS)
 
     try {
         await updateSW(true)
     } catch (error) {
         console.error('PWA update failed', error)
         navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
-        if (fallbackTimer !== undefined) {
-            clearTimeoutFn(fallbackTimer)
-        }
         doReload()
-        return
     }
-
-    fallbackTimer = setTimeoutFn(() => {
-        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
-        doReload()
-    }, PWA_UPDATE_RELOAD_FALLBACK_MS)
 }
 
 export function setupRegistrationUpdateChecks(
