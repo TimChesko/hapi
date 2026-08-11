@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { updateAppViewportHeight } from './useViewportHeight'
 
 /**
  * Unit tests for the useViewportHeight hook logic.
@@ -18,15 +19,14 @@ describe('useViewportHeight update logic', () => {
     })
 
     it('sets --app-viewport-height when visual viewport is smaller than window', () => {
-        // Simulate the update logic from the hook
-        const viewportHeight = 400
-        const windowHeight = 800
-        const diff = windowHeight - viewportHeight
-        if (diff > 1) {
-            root.style.setProperty('--app-viewport-height', `${viewportHeight}px`)
-        } else {
-            root.style.removeProperty('--app-viewport-height')
-        }
+        updateAppViewportHeight({
+            root,
+            viewportHeight: 400,
+            windowHeight: 800,
+            isTelegram: false,
+            scrollY: 0,
+            scrollTo: vi.fn(),
+        })
 
         expect(root.style.getPropertyValue('--app-viewport-height')).toBe('400px')
     })
@@ -35,30 +35,42 @@ describe('useViewportHeight update logic', () => {
         // First set it
         root.style.setProperty('--app-viewport-height', '400px')
 
-        // Then simulate keyboard close
-        const viewportHeight = 800
-        const windowHeight = 800
-        const diff = windowHeight - viewportHeight
-        if (diff > 1) {
-            root.style.setProperty('--app-viewport-height', `${viewportHeight}px`)
-        } else {
-            root.style.removeProperty('--app-viewport-height')
-        }
+        updateAppViewportHeight({
+            root,
+            viewportHeight: 800,
+            windowHeight: 800,
+            isTelegram: false,
+            scrollY: 0,
+            scrollTo: vi.fn(),
+        })
 
         expect(root.style.getPropertyValue('--app-viewport-height')).toBe('')
     })
 
     it('ignores sub-pixel differences (threshold of 1px)', () => {
-        const viewportHeight = 799.5
-        const windowHeight = 800
-        const diff = windowHeight - viewportHeight
-        if (diff > 1) {
-            root.style.setProperty('--app-viewport-height', `${viewportHeight}px`)
-        } else {
-            root.style.removeProperty('--app-viewport-height')
-        }
+        updateAppViewportHeight({
+            root,
+            viewportHeight: 799.5,
+            windowHeight: 800,
+            isTelegram: false,
+            scrollY: 0,
+            scrollTo: vi.fn(),
+        })
 
         expect(root.style.getPropertyValue('--app-viewport-height')).toBe('')
+    })
+
+    it('keeps --app-viewport-height set in Telegram Mini Apps', () => {
+        updateAppViewportHeight({
+            root,
+            viewportHeight: 702.4,
+            windowHeight: 702,
+            isTelegram: true,
+            scrollY: 0,
+            scrollTo: vi.fn(),
+        })
+
+        expect(root.style.getPropertyValue('--app-viewport-height')).toBe('702px')
     })
 
     it('resets page scroll when keyboard is open', () => {
@@ -67,15 +79,14 @@ describe('useViewportHeight update logic', () => {
         // Simulate: keyboard open AND page has been scrolled by iOS
         Object.defineProperty(window, 'scrollY', { value: 120, configurable: true })
 
-        const viewportHeight = 400
-        const windowHeight = 800
-        const diff = windowHeight - viewportHeight
-        if (diff > 1) {
-            root.style.setProperty('--app-viewport-height', `${viewportHeight}px`)
-            if (window.scrollY > 0) {
-                window.scrollTo(0, 0)
-            }
-        }
+        updateAppViewportHeight({
+            root,
+            viewportHeight: 400,
+            windowHeight: 800,
+            isTelegram: false,
+            scrollY: window.scrollY,
+            scrollTo: window.scrollTo.bind(window),
+        })
 
         expect(scrollToSpy).toHaveBeenCalledWith(0, 0)
 
@@ -89,15 +100,14 @@ describe('useViewportHeight update logic', () => {
 
         Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
 
-        const viewportHeight = 400
-        const windowHeight = 800
-        const diff = windowHeight - viewportHeight
-        if (diff > 1) {
-            root.style.setProperty('--app-viewport-height', `${viewportHeight}px`)
-            if (window.scrollY > 0) {
-                window.scrollTo(0, 0)
-            }
-        }
+        updateAppViewportHeight({
+            root,
+            viewportHeight: 400,
+            windowHeight: 800,
+            isTelegram: false,
+            scrollY: window.scrollY,
+            scrollTo: window.scrollTo.bind(window),
+        })
 
         expect(scrollToSpy).not.toHaveBeenCalled()
 

@@ -1,5 +1,33 @@
 import { useEffect } from 'react'
-import { isTelegramApp } from '@/hooks/useTelegram'
+import { isTelegramEnvironment } from '@/hooks/useTelegram'
+
+export const APP_VIEWPORT_HEIGHT_REFRESH_EVENT = 'hapi-viewport-height-refresh'
+
+export function updateAppViewportHeight(params: {
+    root: HTMLElement
+    viewportHeight: number
+    windowHeight: number
+    isTelegram: boolean
+    scrollY: number
+    scrollTo: (x: number, y: number) => void
+}): void {
+    const { root, viewportHeight, windowHeight, isTelegram, scrollY, scrollTo } = params
+    const roundedViewportHeight = Math.round(viewportHeight)
+    const diff = windowHeight - viewportHeight
+
+    if (roundedViewportHeight > 0 && (isTelegram || diff > 1)) {
+        root.style.setProperty('--app-viewport-height', `${roundedViewportHeight}px`)
+        // On iOS PWA (black-translucent status bar + viewport-fit=cover),
+        // the browser scrolls the page upward when the keyboard opens to keep
+        // the focused input visible. Reset the page scroll so the app stays
+        // pinned to the top; inner flex layouts handle keeping inputs visible.
+        if (diff > 1 && scrollY > 0) {
+            scrollTo(0, 0)
+        }
+    } else {
+        root.style.removeProperty('--app-viewport-height')
+    }
+}
 
 /**
  * Sets a CSS custom property `--app-viewport-height` on <html> that tracks the
@@ -9,49 +37,39 @@ import { isTelegramApp } from '@/hooks/useTelegram'
  * composer input is hidden behind the keyboard.
  *
  * The hook listens to `window.visualViewport.resize` and writes the viewport
- * height into the CSS variable. The CSS height chain is:
- *   var(--tg-viewport-stable-height, var(--app-viewport-height, 100dvh))
- *
- * Skipped in Telegram Mini Apps (Telegram SDK provides its own height variable).
+ * height into the CSS variable. In Telegram Mini Apps we keep this variable set
+ * all the time as a fallback for clients that do not refresh SDK viewport CSS
+ * variables after native chrome color changes.
  */
 export function useViewportHeight(): void {
     useEffect(() => {
-        // Telegram Mini App has its own viewport management via --tg-viewport-stable-height
-        if (isTelegramApp()) return
-
         const viewport = window.visualViewport
         if (!viewport) return
 
         const root = document.documentElement
+        const isTelegram = isTelegramEnvironment()
 
         function update() {
             if (!viewport) return
-            // Only apply when the visual viewport is meaningfully smaller than
-            // the window (keyboard is open). A small threshold (1px) avoids
-            // false positives from sub-pixel rounding.
-            const diff = window.innerHeight - viewport.height
-            if (diff > 1) {
-                root.style.setProperty('--app-viewport-height', `${viewport.height}px`)
-                // On iOS PWA (black-translucent status bar + viewport-fit=cover),
-                // the browser scrolls the page upward when the keyboard opens to
-                // keep the focused input visible. This pushes the header behind
-                // the iOS status bar. Reset the page scroll so the app stays
-                // pinned to the top — the inner flex layout already handles
-                // keeping the composer visible.
-                if (window.scrollY > 0) {
-                    window.scrollTo(0, 0)
-                }
-            } else {
-                root.style.removeProperty('--app-viewport-height')
-            }
+            updateAppViewportHeight({
+                root,
+                viewportHeight: viewport.height,
+                windowHeight: window.innerHeight,
+                isTelegram,
+                scrollY: window.scrollY,
+                scrollTo: window.scrollTo.bind(window),
+            })
         }
 
+        update()
         viewport.addEventListener('resize', update)
         viewport.addEventListener('scroll', update)
+        window.addEventListener(APP_VIEWPORT_HEIGHT_REFRESH_EVENT, update)
 
         return () => {
             viewport.removeEventListener('resize', update)
             viewport.removeEventListener('scroll', update)
+            window.removeEventListener(APP_VIEWPORT_HEIGHT_REFRESH_EVENT, update)
             root.style.removeProperty('--app-viewport-height')
         }
     }, [])

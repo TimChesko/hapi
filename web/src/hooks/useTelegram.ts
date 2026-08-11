@@ -12,7 +12,8 @@ import {
     viewport,
 } from '@tma.js/sdk'
 
-const TELEGRAM_DEBUG_BUILD_ID = 'tma-bridge-debug-20260811'
+const TELEGRAM_DEBUG_BUILD_ID = 'tma-viewport-debug-20260811'
+const APP_VIEWPORT_HEIGHT_REFRESH_EVENT = 'hapi-viewport-height-refresh'
 const TMA_INIT_RETRY_DELAY_MS = 500
 const TMA_FALLBACK_VERSION = '9.0'
 const TELEGRAM_DEBUG_PAGE_ID = createTelegramDebugPageId()
@@ -131,6 +132,7 @@ let tmaInitAttemptCount = 0
 let tmaInitError: string | null = null
 let lastTmaInitAttemptAt = 0
 let tmaCleanup: (() => void) | null = null
+let tmaViewportCssVarsCleanup: (() => void) | null = null
 
 type TelegramAppChromeMethod =
     | 'setHeaderColor'
@@ -258,6 +260,7 @@ export function syncTelegramWebAppThemeColors(color = getResolvedAppBackgroundCo
     } else {
         syncTelegramChromeColorsViaBridge(color, attempts)
     }
+    scheduleViewportHeightRefresh('chrome-sync')
     reportTelegramChromeSync(color, attempts, 'attempted')
 }
 
@@ -423,6 +426,16 @@ function getTmaSnapshot(): Record<string, string | number | boolean | null> {
         miniAppMounted: safeRead(() => miniApp.isMounted()) ?? false,
         themeParamsMounted: safeRead(() => themeParams.isMounted()) ?? false,
         viewportMounted: safeRead(() => viewport.isMounted()) ?? false,
+        viewportCssVarsBound: safeRead(() => viewport.isCssVarsBound()) ?? false,
+        viewportHeight: safeRead(() => viewport.height()) ?? null,
+        viewportStableHeight: safeRead(() => viewport.stableHeight()) ?? null,
+        cssAppViewportHeight: getRootCssVar('--app-viewport-height'),
+        cssTgViewportHeight: getRootCssVar('--tg-viewport-height'),
+        cssTgViewportStableHeight: getRootCssVar('--tg-viewport-stable-height'),
+        visualViewportHeight: window.visualViewport?.height ?? null,
+        visualViewportWidth: window.visualViewport?.width ?? null,
+        visualViewportOffsetTop: window.visualViewport?.offsetTop ?? null,
+        windowInnerHeight: window.innerHeight,
         swipeBehaviorMounted: safeRead(() => swipeBehavior.isMounted()) ?? false,
         backButtonMounted: safeRead(() => backButton.isMounted()) ?? false,
         readyAvailable: safeRead(() => miniApp.ready.isAvailable()) ?? false,
@@ -511,6 +524,7 @@ function initializeTmaSdk(): boolean {
     safeCall(() => {
         if (!viewport.isMounted()) viewport.mount()
     })
+    scheduleTmaViewportCssVarsBind('mounted')
     safeCall(() => {
         if (!swipeBehavior.isMounted()) swipeBehavior.mount()
     })
@@ -520,6 +534,32 @@ function initializeTmaSdk(): boolean {
 
     reportTelegramDebug('telegram-tma-init', { stage: 'mounted' })
     return true
+}
+
+function scheduleTmaViewportCssVarsBind(stage: string): void {
+    bindTmaViewportCssVars(stage)
+    window.setTimeout(() => bindTmaViewportCssVars(`${stage}:next-tick`), 0)
+    window.setTimeout(() => {
+        bindTmaViewportCssVars(`${stage}:settled`)
+        reportTelegramDebug('telegram-viewport-state', { stage: `${stage}:settled` })
+    }, 250)
+}
+
+function bindTmaViewportCssVars(stage: string): void {
+    if (tmaViewportCssVarsCleanup || safeRead(() => viewport.isCssVarsBound()) === true) return
+
+    try {
+        const cleanup = viewport.bindCssVars()
+        tmaViewportCssVarsCleanup = cleanup
+        reportTelegramDebug('telegram-viewport-css-vars', { stage, status: 'bound' })
+    } catch (error) {
+        reportTelegramDebug('telegram-viewport-css-vars', {
+            stage,
+            status: 'failed',
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+        })
+    }
 }
 
 function initializeTmaSdkWithoutLaunchParams(cause: unknown): boolean {
@@ -667,6 +707,25 @@ function getCurrentTelegramWebAppForDebug(): TelegramWebApp | null {
         bottomBarColor: String(miniApp.bottomBarColor()),
         ready: () => {},
         expand: () => {},
+    }
+}
+
+function getRootCssVar(name: string): string | null {
+    if (typeof document === 'undefined') return null
+    const value = document.documentElement.style.getPropertyValue(name).trim()
+    return value || null
+}
+
+function scheduleViewportHeightRefresh(reason: string): void {
+    if (typeof window === 'undefined') return
+
+    for (const delay of [0, 50, 250, 600]) {
+        window.setTimeout(() => {
+            window.dispatchEvent(new Event(APP_VIEWPORT_HEIGHT_REFRESH_EVENT))
+            if (delay === 250) {
+                reportTelegramDebug('telegram-viewport-refresh', { reason, delay })
+            }
+        }, delay)
     }
 }
 
