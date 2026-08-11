@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { applyColorTheme, getColorThemeBackground, getColorThemePickerValue, getColorThemeStorageKey, getStoredColorTheme, type ColorScheme } from './useColorTheme'
+import { applyColorTheme, getColorThemePickerValue, getColorThemeStorageKey, getStoredColorTheme, type ColorScheme } from './useColorTheme'
 import { syncTelegramWebAppThemeColors } from './useTelegram'
 
 /**
@@ -194,19 +194,6 @@ function contrastColor(scheme: ThemeScheme): string {
     return scheme === 'light' ? '#000000' : '#ffffff'
 }
 
-function getTelegramChromeBackgroundColor(
-    scheme: ThemeScheme,
-    overrides: Partial<Record<ThemeColorKeyId, string>>
-): string {
-    const override = overrides.background
-    if (override && isHexColor(override)) {
-        return override
-    }
-
-    return getColorThemeBackground(getStoredColorTheme(), scheme as ColorScheme)
-        ?? DEFAULT_HEX[scheme].background
-}
-
 export function getThemeScheme(): ThemeScheme {
     if (!isBrowser()) return 'light'
     const theme = document.documentElement.getAttribute('data-theme')
@@ -280,7 +267,8 @@ export function applyThemeColors(): void {
         }
     }
 
-    syncTelegramWebAppThemeColors(getTelegramChromeBackgroundColor(scheme, overrides))
+    const appliedBackground = rootStyle.getPropertyValue('--app-bg').trim()
+    syncTelegramWebAppThemeColors(appliedBackground || undefined)
 }
 
 export function getThemeColorPickerValue(scheme: ThemeScheme, id: ThemeColorKeyId): string {
